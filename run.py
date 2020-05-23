@@ -16,7 +16,8 @@ from modules.generator import OcclusionAwareGenerator
 from modules.keypoint_detector import KPDetector
 from animate import normalize_kp
 from scipy.spatial import ConvexHull
-
+from crop_video import crop_video
+from crop_video import crop_image
 
 if sys.version_info[0] < 3:
     raise Exception("You must use Python 3 or higher. Recommended version is Python 3.7")
@@ -102,13 +103,26 @@ def find_best_frame(source, driving, cpu=False):
             frame_num = i
     return frame_num
 
+def process_frames(source_image, driving_frames, generator, kp_detector, from_best_frame=False, adapt_movement_scale=True, gpu=False):
+    if from_best_frame:
+        i = find_best_frame(source_image, driving_frames, cpu = not gpu)
+        driving_forward = driving_frames[i:]
+        driving_backward = driving_frames[:(i+1)][::-1]
+        predictions_forward = make_animation(source_image, driving_forward, generator, kp_detector, relative=True, adapt_movement_scale=adapt_movement_scale, cpu = not gpu)
+        predictions_backward = make_animation(source_image, driving_backward, generator, kp_detector, relative=True, adapt_movement_scale=adapt_movement_scale, cpu = not gpu)
+        predictions = predictions_backward[::-1] + predictions_forward[1:]
+    else:
+        predictions = make_animation(source_image, driving_frames, generator, kp_detector, relative=True, adapt_movement_scale=adapt_movement_scale, cpu = not gpu)
+
+    return predictions
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--config", default='config/vox-256.yaml', help="path to config")
     parser.add_argument("--checkpoint", default='model/vox-cpk.pth.tar', help="path to checkpoint to restore")
 
-    parser.add_argument("--source_image", default='sup-mat/source.png', help="path to source image")
-    parser.add_argument("--driving_video", default='sup-mat/source.png', help="path to driving video")
+    parser.add_argument("--source_image", default='temp/source.jpg', help="path to source image")
+    parser.add_argument("--driving_video", default='temp/source.mp4', help="path to driving video")
     parser.add_argument("--result_video", default='result.mp4', help="path to output")
  
     parser.add_argument("--adapt_scale", dest="adapt_scale", action="store_true", help="adapt movement scale based on convex hull of keypoints")
@@ -116,38 +130,35 @@ if __name__ == "__main__":
     parser.add_argument("--find_best_frame", dest="find_best_frame", action="store_true", 
                         help="Generate from the frame that is the most alligned with source. (Only for faces, requires face_aligment lib)")
  
-    parser.add_argument("--cpu", dest="cpu", action="store_true", help="cpu mode.")
+    parser.add_argument("--gpu", dest="gpu", action="store_true", help="add CUDA support.")
+
+    parser.add_argument("--crop", dest="crop", action="store_true", help="crop face in image and video.")
  
-
     parser.set_defaults(relative=False)
-    parser.set_defaults(adapt_scale=False)
-
     opt = parser.parse_args()
 
+    print("Opening image/video.")
     source_image = imageio.imread(opt.source_image)
     reader = imageio.get_reader(opt.driving_video)
     fps = reader.get_meta_data()['fps']
-    driving_video = []
-    try:
-        for im in reader:
-            driving_video.append(im)
-    except RuntimeError:
-        pass
+
+    driving_video = [frame for frame in reader]
     reader.close()
 
-    source_image = resize(source_image, (256, 256))[..., :3]
-    driving_video = [resize(frame, (256, 256))[..., :3] for frame in driving_video]
-    generator, kp_detector = load_checkpoints(config_path=opt.config, checkpoint_path=opt.checkpoint, cpu=opt.cpu)
-
-    if opt.find_best_frame:
-        i = find_best_frame(source_image, driving_video, cpu=opt.cpu)
-        print ("Best frame: " + str(i))
-        driving_forward = driving_video[i:]
-        driving_backward = driving_video[:(i+1)][::-1]
-        predictions_forward = make_animation(source_image, driving_forward, generator, kp_detector, relative=True, adapt_movement_scale=opt.adapt_scale, cpu=opt.cpu)
-        predictions_backward = make_animation(source_image, driving_backward, generator, kp_detector, relative=True, adapt_movement_scale=opt.adapt_scale, cpu=opt.cpu)
-        predictions = predictions_backward[::-1] + predictions_forward[1:]
+    print("Cropping image/video")
+    if opt.crop:
+        source_image = crop_image(source_image, gpu=opt.gpu)
+        driving_video = crop_video(driving_video, gpu=opt.gpu, min_frames=1)
     else:
-        predictions = make_animation(source_image, driving_video, generator, kp_detector, relative=True, adapt_movement_scale=opt.adapt_scale, cpu=opt.cpu)
+        source_image = resize(source_image, (256, 256))[..., :3]
+        driving_video = [resize(frame, (256, 256))[..., :3] for frame in driving_video]
+
+    print("Opening model.")
+    generator, kp_detector = load_checkpoints(config_path=opt.config, checkpoint_path=opt.checkpoint, cpu=not opt.gpu)
+
+    print("Generating video.")
+    predictions = process_frames(source_image, driving_video, generator, kp_detector, from_best_frame = opt.find_best_frame, adapt_movement_scale=False, gpu=opt.gpu)
+
+    print("Saving video.")
     imageio.mimsave(opt.result_video, [img_as_ubyte(frame) for frame in predictions], fps=fps)
 

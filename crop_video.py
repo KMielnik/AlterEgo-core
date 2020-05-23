@@ -9,6 +9,7 @@ import os
 import imageio
 import numpy as np
 import warnings
+
 warnings.filterwarnings("ignore")
 
 def extract_bbox(frame, fa):
@@ -46,7 +47,7 @@ def join(tube_bbox, bbox):
     return (xA, yA, xB, yB)
 
 
-def compute_bbox(start, end, fps, tube_bbox, frame_shape, inp, increase_area=0.1):
+def compute_bbox(start, end, tube_bbox, frame_shape, image_shape, increase_area):
     left, top, right, bot = tube_bbox
     width = right - left
     height = bot - top
@@ -61,32 +62,33 @@ def compute_bbox(start, end, fps, tube_bbox, frame_shape, inp, increase_area=0.1
     bot = int(bot + height_increase * height)
 
     top, bot, left, right = max(0, top), min(bot, frame_shape[0]), max(0, left), min(right, frame_shape[1])
-    h, w = bot - top, right - left
 
-    start = start / fps
-    end = end / fps
-    time = end - start
+    return {
+        "start": start,
+        "end": end,
+        "bbox": (left, right, top, bot),
+        "scale": image_shape
+    }
 
-    return f'ffmpeg -i {inp} -ss {start} -t {time} -filter:v "crop={w}:{h}:{left}:{top}, scale=256:256" crop.mp4'
 
-
-def compute_bbox_trajectories(trajectories, fps, frame_shape, args):
+def compute_bbox_trajectories(trajectories, frame_shape, increase, min_frames, image_shape):
     commands = []
     for i, (bbox, tube_bbox, start, end) in enumerate(trajectories):
-        if (end - start) > args.min_frames:
-            command = compute_bbox(start, end, fps, tube_bbox, frame_shape, inp=args.inp, increase_area=args.increase)
+        if (end - start) > min_frames:
+            command = compute_bbox(start, end, tube_bbox, frame_shape, image_shape=image_shape, increase_area=increase)
             commands.append(command)
     return commands
 
 
-def process_video(args):
-    device = 'cpu' if args.cpu else 'cuda'
+def process_video_for_crop(video, gpu=False, increase=0.1, min_frames = 5, image_shape=(256,256)):
+    device = 'cuda' if gpu else 'cpu'
+
+    iou_with_initial = 0.25
+
     fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False, device=device)
-    video = imageio.get_reader(args.inp)
 
     trajectories = []
     previous_frame = None
-    fps = video.get_meta_data()['fps']
     commands = []
     try:
         for i, frame in tqdm(enumerate(video)):
@@ -101,12 +103,12 @@ def process_video(args):
                 intersection = 0
                 for bbox in bboxes:
                     intersection = max(intersection, bb_intersection_over_union(tube_bbox, bbox))
-                if intersection > args.iou_with_initial:
+                if intersection > iou_with_initial:
                     valid_trajectories.append(trajectory)
                 else:
                     not_valid_trajectories.append(trajectory)
 
-            commands += compute_bbox_trajectories(not_valid_trajectories, fps, frame_shape, args)
+            commands += compute_bbox_trajectories(not_valid_trajectories, frame_shape, increase, min_frames, image_shape)
             trajectories = valid_trajectories
 
             ## Assign bbox to trajectories, create new trajectories
@@ -116,7 +118,7 @@ def process_video(args):
                 for trajectory in trajectories:
                     tube_bbox = trajectory[0]
                     current_intersection = bb_intersection_over_union(tube_bbox, bbox)
-                    if intersection < current_intersection and current_intersection > args.iou_with_initial:
+                    if intersection < current_intersection and current_intersection > iou_with_initial:
                         intersection = bb_intersection_over_union(tube_bbox, bbox)
                         current_trajectory = trajectory
 
@@ -131,9 +133,30 @@ def process_video(args):
     except IndexError as e:
         raise (e)
 
-    commands += compute_bbox_trajectories(trajectories, fps, frame_shape, args)
+    commands += compute_bbox_trajectories(trajectories, frame_shape, increase, min_frames, image_shape)
     return commands
 
+def crop_video(video, gpu=False, increase=0.1, min_frames = 5, image_shape=(256,256)):
+    if len(video) == 0:
+        return video
+
+    commands = process_video_for_crop(video, gpu=gpu, increase=increase, min_frames=min_frames, image_shape=image_shape)
+
+    output = []
+
+    for command in commands:
+        for i in tqdm(range(command["start"], command["end"]+1)):
+            bbox = command["bbox"]
+            frame = video[i][bbox[2]:bbox[3],bbox[0]:bbox[1],:]
+
+            frame = resize(frame, image_shape)[..., :3]
+
+            output.append(frame)
+
+    return output
+
+def crop_image(image, gpu=False, increase=0.1, min_frames = -1, image_shape=(256,256)):
+    return crop_video([image], gpu=gpu, increase=increase, min_frames = min_frames, image_shape=image_shape)[0]
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -143,13 +166,16 @@ if __name__ == "__main__":
     parser.add_argument("--increase", default=0.1, type=float, help='Increase bbox by this amount')
     parser.add_argument("--iou_with_initial", type=float, default=0.25, help="The minimal allowed iou with inital bbox")
     parser.add_argument("--inp", required=True, help='Input image or video')
-    parser.add_argument("--min_frames", type=int, default=150,  help='Minimum number of frames')
-    parser.add_argument("--cpu", dest="cpu", action="store_true", help="cpu mode.")
-
+    parser.add_argument("--min_frames", type=int, default=1,  help='Minimum number of frames')
+    parser.add_argument("--gpu", dest="gpu", action="store_true", help="gpu mode.")
 
     args = parser.parse_args()
 
-    commands = process_video(args)
+    video = imageio.get_reader(args.inp)
+
+    video = [frame for frame in video]
+
+    commands = process_video_for_crop(video, min_frames=args.min_frames, gpu=args.gpu, increase=args.increase, image_shape=args.image_shape)
+
     for command in commands:
         print (command)
-

@@ -1,3 +1,6 @@
 /.vscode
 __pycache__
 /venv
+/temp
+/model
+!/model/put_downloaded_model_there.txt
