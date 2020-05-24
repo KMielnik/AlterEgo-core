@@ -132,13 +132,17 @@ def process_frames(source_image, driving_frames, generator, kp_detector, from_be
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--config", default='config/vox-256.yaml', help="path to config")
+    parser.add_argument(
+        "--config", default='config/vox-256.yaml', help="path to config")
     parser.add_argument("--checkpoint", default='model/vox-cpk.pth.tar',
                         help="path to checkpoint to restore")
 
-    parser.add_argument("--source_image", default='temp/source.jpg', help="path to source image")
-    parser.add_argument("--driving_video", default='temp/source.mp4', help="path to driving video")
-    parser.add_argument("--result_video", default='temp/result.mp4', help="path to output")
+    parser.add_argument(
+        "--source_image", default='temp/source.jpg', help="path to source image")
+    parser.add_argument(
+        "--driving_video", default='temp/source.mp4', help="path to driving video")
+    parser.add_argument(
+        "--result_video", default='temp/result.mp4', help="path to output")
 
     parser.add_argument("--adapt_scale", dest="adapt_scale", action="store_true",
                         help="adapt movement scale based on convex hull of keypoints")
@@ -159,16 +163,10 @@ if __name__ == "__main__":
     opt = parser.parse_args()
 
 
-
     print("Opening image/video.")
     source_image = imageio.imread(opt.source_image)
-    clip = mpy.VideoFileClip(opt.driving_video)
-    fps = clip.fps
-    driving_video = [frame for frame in clip.iter_frames()]
-
-    if(opt.audio):
-        print("With audio.")
-        audio = clip.audio.copy()
+    reader = imageio.get_reader(opt.driving_video)
+    driving_video = [frame for frame in reader]
 
     if opt.crop:
         print("Cropping image/video")
@@ -180,6 +178,8 @@ if __name__ == "__main__":
         driving_video = [resize(frame, (256, 256))[..., :3]
                          for frame in driving_video]
 
+    # imageio.mimsave(opt.result_video+"._cropped.mp4", [img_as_ubyte(frame) for frame in driving_video], fps=30)
+
     print("Opening model.")
     generator, kp_detector = load_checkpoints(
         config_path=opt.config, checkpoint_path=opt.checkpoint, cpu=not opt.gpu)
@@ -189,12 +189,13 @@ if __name__ == "__main__":
                                  from_best_frame=opt.find_best_frame, adapt_movement_scale=False, gpu=opt.gpu)
 
     print("Saving video.")
+    with mpy.VideoFileClip(opt.driving_video) as clip:
+        frames = iter(predictions)
+        with mpy.VideoClip(lambda t: img_as_ubyte(
+                next(frames)), duration=len(predictions)/clip.fps) as output:
 
-    output = mpy.VideoClip(lambda t: img_as_ubyte(
-        predictions[int(t)]), duration=len(predictions)/fps)
+            if opt.audio:
+                print("Copying audio.")
+                output.audio = clip.audio
 
-    if opt.audio:
-        output.audio = audio
-
-    output.write_videofile(opt.result_video, fps=fps)
-    clip.close()
+            output.write_videofile(opt.result_video, fps=clip.fps)

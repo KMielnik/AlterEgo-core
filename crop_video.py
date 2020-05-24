@@ -84,7 +84,6 @@ def process_video_for_crop(video, gpu=False, increase=0.1, min_frames = 5, image
     device = 'cuda' if gpu else 'cpu'
 
     iou_with_initial = 0.25
-
     fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False, device=device)
 
     trajectories = []
