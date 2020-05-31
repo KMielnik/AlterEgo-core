@@ -5,8 +5,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get -qq update \
  && rm -rf /var/lib/apt/lists/* \
  && git clone https://github.com/KMielnik/AlterEgo-core.git
 
-RUN pip3 install https://download.pytorch.org/whl/cu100/torch-1.0.0-cp36-cp36m-linux_x86_64.whl \
-    pip3 install -r /AlterEgo-core/requirements.txt 
+RUN pip3 install --no-cache-dir https://download.pytorch.org/whl/cu100/torch-1.0.0-cp36-cp36m-linux_x86_64.whl \
+    pip3 install --no-cache-dir -r /AlterEgo-core/requirements.txt 
 
 RUN gdown --id 1X1iCdyghN09XaLPYCFkDMbrKnCb-hzJS -O /AlterEgo-core/model/vox-cpk.pth.tar
 
