@@ -32,6 +32,7 @@ You only need to specify filename with extension, for example ``` video.mp4 ```
 * ``` --result_video {filenames} ``` filenames of generated videos, space delimeter - REQUIRED >=1 AND SAME QUANTITY AS ``` --source_image ```
 * ``` --gpu ``` enables CUDA support
 * ``` --crop ``` enables croping instead of rescale (worse performance, very  worth it unless you cropped square image/video yourself)
+* ``` --find_best_frame ``` finds the best frame to start generating video from
 * ``` --audio ``` retain original audio from input video
 * ``` --clean_build ``` do not use previous cropped video data
 
@@ -49,6 +50,7 @@ docker run -it --rm --gpus all \
         --source_image a.jpg b.jpg c.jpg \
         --result_video resultA.mp4 resultB.mp4 resultC.mp4 \
         --gpu \
+        --find_best_frame
         --crop \
         --audio \
         --clean_build
