@@ -232,18 +232,10 @@ if __name__ == "__main__":
 
     video_name = os.path.splitext(opt.driving_video)[0]
 
-    if os.path.exists("temp/" + video_name) and not opt.clean:
-        files_folder = "temp/" + video_name + "/"
+    should_preprocess_video = opt.clean or not os.path.exists("temp/" + video_name) or not os.path.exists(
+        "temp/" + video_name + "driving_processed.mp4") or (opt.find_best_frame and not os.path.exists("temp/" + video_name + "kp_driving.npy"))
 
-        print("Opening video from temp.")
-        with imageio.get_reader(files_folder + "driving_processed.mp4") as reader:
-            driving_video = [img_as_float(frame) for frame in reader]
-
-        if opt.find_best_frame:
-            print("Loading preprocessed frames for --find_best_frame from temp.")
-            with open(files_folder + "kp_driving.npy", "rb") as fp:
-                preprocessed_kp_driving = pickle.load(fp)
-    else:
+    if should_preprocess_video:
         import shutil
         if os.path.exists("temp/" + video_name):
             shutil.rmtree("temp/" + video_name)
@@ -266,13 +258,25 @@ if __name__ == "__main__":
 
             with open(files_folder + "kp_driving.npy", "wb") as fp:
                 pickle.dump(preprocessed_kp_driving, fp)
+    else:
+        files_folder = "temp/" + video_name + "/"
+
+        print("Opening video from temp.")
+        with imageio.get_reader(files_folder + "driving_processed.mp4") as reader:
+            driving_video = [img_as_float(frame) for frame in reader]
+
+        if opt.find_best_frame:
+            print("Loading preprocessed frames for --find_best_frame from temp.")
+            with open(files_folder + "kp_driving.npy", "rb") as fp:
+                preprocessed_kp_driving = pickle.load(fp)
 
     print("Opening model.")
     generator, kp_detector = load_checkpoints(
         config_path=opt.config, checkpoint_path=opt.checkpoint, cpu=not opt.gpu)
 
     for i in range(len(opt.source_image)):
-        print("Generating video for image: " + opt.source_image[i] + " as: " + opt.result_video[i])
+        print("Generating video for image: " +
+              opt.source_image[i] + " as: " + opt.result_video[i])
 
         source_image = open_image(
             "images/" + opt.source_image[i], gpu=opt.gpu, advanced_crop=opt.crop)
