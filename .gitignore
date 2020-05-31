@@ -4,3 +4,8 @@ __pycache__
 /temp
 /model
 !/model/put_downloaded_model_there.txt
+/videos
+!/videos/put_your_videos_here.txt
+/images
+!/images/put_your_images_here.txt
+/output

@@ -10,6 +10,7 @@ import moviepy.editor as mpy
 from sync_batchnorm import DataParallelWithCallback
 import torch
 from skimage import img_as_ubyte
+from skimage import img_as_float
 from skimage.transform import resize
 import numpy as np
 import imageio
@@ -18,6 +19,7 @@ from argparse import ArgumentParser
 import yaml
 import matplotlib
 import os
+import pickle
 matplotlib.use('Agg')
 
 
@@ -87,7 +89,7 @@ def make_animation(source_image, driving_video, generator, kp_detector, relative
     return predictions
 
 
-def find_best_frame(source, driving, cpu=False):
+def find_best_frame(source, driving, cpu=False, preprocessed_kp_driving=None):
     import face_alignment
 
     def normalize_kp(kp):
@@ -104,8 +106,12 @@ def find_best_frame(source, driving, cpu=False):
     norm = float('inf')
     frame_num = 0
     for i, image in tqdm(enumerate(driving)):
-        kp_driving = fa.get_landmarks(255 * image)[0]
-        kp_driving = normalize_kp(kp_driving)
+        if preprocessed_kp_driving != None:
+            kp_driving = preprocessed_kp_driving[i]
+        else:
+            kp_driving = fa.get_landmarks(255 * image)[0]
+            kp_driving = normalize_kp(kp_driving)
+
         new_norm = (np.abs(kp_source - kp_driving) ** 2).sum()
         if new_norm < norm:
             norm = new_norm
@@ -113,9 +119,10 @@ def find_best_frame(source, driving, cpu=False):
     return frame_num
 
 
-def process_frames(source_image, driving_frames, generator, kp_detector, from_best_frame=False, adapt_movement_scale=True, gpu=False):
+def process_frames(source_image, driving_frames, generator, kp_detector, from_best_frame=False, adapt_movement_scale=True, gpu=False, preprocessed_kp_driving=None):
     if from_best_frame:
-        i = find_best_frame(source_image, driving_frames, cpu=not gpu)
+        i = find_best_frame(source_image, driving_frames, cpu=not gpu,
+                            preprocessed_kp_driving=preprocessed_kp_driving)
         driving_forward = driving_frames[i:]
         driving_backward = driving_frames[:(i+1)][::-1]
         predictions_forward = make_animation(source_image, driving_forward, generator,
@@ -130,6 +137,54 @@ def process_frames(source_image, driving_frames, generator, kp_detector, from_be
     return predictions
 
 
+def open_video(source_video, gpu=False, advanced_crop=False):
+    with imageio.get_reader(source_video) as reader:
+        driving_video = [frame for frame in reader]
+        fps = reader.get_meta_data()['fps']
+
+    if advanced_crop:
+        driving_video = crop_video(driving_video, gpu=gpu, min_frames=1)
+    else:
+        driving_video = [resize(frame, (256, 256))[..., :3]
+                         for frame in driving_video]
+
+    return driving_video, fps
+
+
+def open_image(source_image, gpu=False, advanced_crop=False):
+    source_image = imageio.imread(source_image)
+
+    if advanced_crop:
+        source_image = crop_image(source_image, gpu=opt.gpu)
+    else:
+        source_image = resize(source_image, (256, 256))[..., :3]
+
+    return source_image
+
+
+def preprocess_kp_driving(driving, gpu=False):
+    import face_alignment
+
+    def normalize_kp(kp):
+        kp = kp - kp.mean(axis=0, keepdims=True)
+        area = ConvexHull(kp[:, :2]).volume
+        area = np.sqrt(area)
+        kp[:, :2] = kp[:, :2] / area
+        return kp
+
+    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True,
+                                      device='cuda' if gpu else 'cpu')
+
+    preprocessed_kp_driving = []
+    for i, image in tqdm(enumerate(driving)):
+        kp_driving = fa.get_landmarks(255 * image)[0]
+        kp_driving = normalize_kp(kp_driving)
+
+        preprocessed_kp_driving.append(kp_driving)
+
+    return preprocessed_kp_driving
+
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument(
@@ -138,17 +193,17 @@ if __name__ == "__main__":
                         help="path to checkpoint to restore")
 
     parser.add_argument(
-        "--source_image", default='temp/source.jpg', help="path to source image")
+        "--source_image", help="path to source image", nargs="+", required=True)
     parser.add_argument(
-        "--driving_video", default='temp/source.mp4', help="path to driving video")
+        "--driving_video", help="path to driving video", required=True)
     parser.add_argument(
-        "--result_video", default='temp/result.mp4', help="path to output")
+        "--result_video", help="path to output", nargs="+", required=True)
 
     parser.add_argument("--adapt_scale", dest="adapt_scale", action="store_true",
                         help="adapt movement scale based on convex hull of keypoints")
 
     parser.add_argument("--find_best_frame", dest="find_best_frame", action="store_true",
-                        help="Generate from the frame that is the most alligned with source. (Only for faces, requires face_aligment lib)")
+                        help="Generate from the frame that is the most alligned with source.")
 
     parser.add_argument("--gpu", dest="gpu",
                         action="store_true", help="add CUDA support.")
@@ -159,43 +214,82 @@ if __name__ == "__main__":
     parser.add_argument("--audio", dest="audio", action="store_true",
                         help="save original audio in result.")
 
+    parser.add_argument("--clean_build", dest="clean", action="store_true",
+                        help="do not use old temp data for video.")
+
     parser.set_defaults(relative=False)
     opt = parser.parse_args()
 
+    if len(opt.source_image) != len(opt.result_video):
+        print("Number of --result_video names must be equal to --source_image")
+        sys.exit(1)
 
-    print("Opening image/video.")
-    source_image = imageio.imread(opt.source_image)
-    reader = imageio.get_reader(opt.driving_video)
-    driving_video = [frame for frame in reader]
+    if not os.path.exists("temp"):
+        os.makedirs("temp")
 
-    if opt.crop:
-        print("Cropping image/video")
-        source_image = crop_image(source_image, gpu=opt.gpu)
-        driving_video = crop_video(driving_video, gpu=opt.gpu, min_frames=1)
+    if not os.path.exists("output"):
+        os.makedirs("output")
+
+    video_name = os.path.splitext(opt.driving_video)[0]
+
+    if os.path.exists("temp/" + video_name) and not opt.clean:
+        files_folder = "temp/" + video_name + "/"
+
+        print("Opening video from temp.")
+        with imageio.get_reader(files_folder + "driving_processed.mp4") as reader:
+            driving_video = [img_as_float(frame) for frame in reader]
+
+        if opt.find_best_frame:
+            print("Loading preprocessed frames for --find_best_frame from temp.")
+            with open(files_folder + "kp_driving.npy", "rb") as fp:
+                preprocessed_kp_driving = pickle.load(fp)
     else:
-        print("Scaling image/video")
-        source_image = resize(source_image, (256, 256))[..., :3]
-        driving_video = [resize(frame, (256, 256))[..., :3]
-                         for frame in driving_video]
+        import shutil
+        if os.path.exists("temp/" + video_name):
+            shutil.rmtree("temp/" + video_name)
 
-    # imageio.mimsave(opt.result_video+"._cropped.mp4", [img_as_ubyte(frame) for frame in driving_video], fps=30)
+        os.makedirs("temp/" + video_name)
+        files_folder = "temp/" + video_name + "/"
+
+        print("Opening video.")
+        driving_video, fps = open_video(
+            "videos/" + opt.driving_video, gpu=opt.gpu, advanced_crop=opt.crop)
+
+        with imageio.get_writer(files_folder + "driving_processed.mp4", fps=fps) as writer:
+            [writer.append_data(img_as_ubyte(frame))
+             for frame in driving_video]
+
+        if opt.find_best_frame:
+            print("Preprocessing frames for --find_best_frame.")
+            preprocessed_kp_driving = preprocess_kp_driving(
+                driving_video, gpu=opt.gpu)
+
+            with open(files_folder + "kp_driving.npy", "wb") as fp:
+                pickle.dump(preprocessed_kp_driving, fp)
 
     print("Opening model.")
     generator, kp_detector = load_checkpoints(
         config_path=opt.config, checkpoint_path=opt.checkpoint, cpu=not opt.gpu)
 
-    print("Generating video.")
-    predictions = process_frames(source_image, driving_video, generator, kp_detector,
-                                 from_best_frame=opt.find_best_frame, adapt_movement_scale=False, gpu=opt.gpu)
+    for i in range(len(opt.source_image)):
+        print("Generating video for image: " + opt.source_image[i] + " as: " + opt.result_video[i])
 
-    print("Saving video.")
-    with mpy.VideoFileClip(opt.driving_video) as clip:
-        frames = iter(predictions)
-        with mpy.VideoClip(lambda t: img_as_ubyte(
-                next(frames)), duration=len(predictions)/clip.fps) as output:
+        source_image = open_image(
+            "images/" + opt.source_image[i], gpu=opt.gpu, advanced_crop=opt.crop)
 
-            if opt.audio:
-                print("Copying audio.")
-                output.audio = clip.audio
+        print("Generating video.")
+        predictions = process_frames(source_image, driving_video, generator, kp_detector,
+                                     from_best_frame=opt.find_best_frame, adapt_movement_scale=False, gpu=opt.gpu, preprocessed_kp_driving=preprocessed_kp_driving)
 
-            output.write_videofile(opt.result_video, fps=clip.fps)
+        print("Saving video.")
+        with mpy.VideoFileClip("videos/" + opt.driving_video) as clip:
+            frames = iter(predictions)
+            with mpy.VideoClip(lambda t: img_as_ubyte(
+                    next(frames)), duration=len(predictions)/clip.fps) as output:
+
+                if opt.audio:
+                    print("Copying audio.")
+                    output.audio = clip.audio
+
+                output.write_videofile(
+                    "output/" + opt.result_video[i], fps=clip.fps)
