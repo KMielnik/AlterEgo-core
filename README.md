@@ -40,17 +40,17 @@ You only need to specify filename with extension, for example ``` video.mp4 ```
 
 ```
 docker run -it --rm --gpus all \
-    -v $HOME/AlterEgo-core-data/images:/AlterEgo-core/images \ 
-    -v $HOME/AlterEgo-core-data/videos:/AlterEgo-core/videos \ 
-    -v $HOME/AlterEgo-core-data/output:/AlterEgo-core/output \ 
-    -v $HOME/AlterEgo-core-data/temp:/AlterEgo-core/temp \ 
-    kamilmielnik/alterego-core \
+    -v $HOME/AlterEgo-core-data/images:/AlterEgo-core/images \
+    -v $HOME/AlterEgo-core-data/videos:/AlterEgo-core/videos \
+    -v $HOME/AlterEgo-core-data/output:/AlterEgo-core/output \
+    -v $HOME/AlterEgo-core-data/temp:/AlterEgo-core/temp \
+    kamilmielnik/alterego-core:1.0.1 \
     python3 run.py \
         --driving_video source.mp4 \
         --source_image a.jpg b.jpg c.jpg \
         --result_video resultA.mp4 resultB.mp4 resultC.mp4 \
         --gpu \
-        --find_best_frame
+        --find_best_frame \
         --crop \
         --audio \
         --clean_build

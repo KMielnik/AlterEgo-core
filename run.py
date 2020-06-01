@@ -233,7 +233,7 @@ if __name__ == "__main__":
     video_name = os.path.splitext(opt.driving_video)[0]
 
     should_preprocess_video = opt.clean or not os.path.exists("temp/" + video_name) or not os.path.exists(
-        "temp/" + video_name + "driving_processed.mp4") or (opt.find_best_frame and not os.path.exists("temp/" + video_name + "kp_driving.npy"))
+        "temp/" + video_name + "/driving_processed.mp4") or (opt.find_best_frame and not os.path.exists("temp/" + video_name + "/kp_driving.npy"))
 
     preprocessed_kp_driving = None
 
