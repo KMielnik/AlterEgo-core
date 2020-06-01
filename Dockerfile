@@ -10,6 +10,6 @@ RUN pip3 install --no-cache-dir https://download.pytorch.org/whl/cu100/torch-1.0
 
 RUN gdown --id 1X1iCdyghN09XaLPYCFkDMbrKnCb-hzJS -O /AlterEgo-core/model/vox-cpk.pth.tar
 
-RUN python3 -c 'import face_alignment;face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False, device=cpu)'
+RUN python3 -c 'import face_alignment;face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False, device="cpu")'
 
 WORKDIR /AlterEgo-core
