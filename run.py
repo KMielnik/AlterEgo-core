@@ -235,6 +235,8 @@ if __name__ == "__main__":
     should_preprocess_video = opt.clean or not os.path.exists("temp/" + video_name) or not os.path.exists(
         "temp/" + video_name + "driving_processed.mp4") or (opt.find_best_frame and not os.path.exists("temp/" + video_name + "kp_driving.npy"))
 
+    preprocessed_kp_driving = None
+
     if should_preprocess_video:
         import shutil
         if os.path.exists("temp/" + video_name):
