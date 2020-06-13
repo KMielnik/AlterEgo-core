@@ -31,7 +31,8 @@ You only need to specify filename with extension, for example ``` video.mp4 ```
 * ``` --source_image {filenames} ``` filenames of images to animate, space delimeter - REQUIRED >=1
 * ``` --result_video {filenames} ``` filenames of generated videos, space delimeter - REQUIRED >=1 AND SAME QUANTITY AS ``` --source_image ```
 * ``` --gpu ``` enables CUDA support
-* ``` --crop ``` enables croping instead of rescale (worse performance, very  worth it unless you cropped square image/video yourself)
+* ``` --crop ``` enables croping instead of rescale (worse performance, definitely worth it, unless you cropped square image/video yourself)
+* ``` --image_padding ``` changes image padding (default=0.2), 0 means face is covering all of result video, 1 would be maximum zoom out (works only if using ``` --crop ```)
 * ``` --find_best_frame ``` finds the best frame to start generating video from
 * ``` --audio ``` retain original audio from input video
 * ``` --clean_build ``` do not use previous cropped video data
@@ -44,7 +45,7 @@ docker run -it --rm --gpus all \
     -v $HOME/AlterEgo-core-data/videos:/AlterEgo-core/videos \
     -v $HOME/AlterEgo-core-data/output:/AlterEgo-core/output \
     -v $HOME/AlterEgo-core-data/temp:/AlterEgo-core/temp \
-    kamilmielnik/alterego-core:1.0.1 \
+    kamilmielnik/alterego-core:1.1.0 \
     python3 run.py \
         --driving_video source.mp4 \
         --source_image a.jpg b.jpg c.jpg \
@@ -52,6 +53,7 @@ docker run -it --rm --gpus all \
         --gpu \
         --find_best_frame \
         --crop \
+        --image_padding 0.2 \
         --audio \
         --clean_build
 ```

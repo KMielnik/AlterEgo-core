@@ -20,6 +20,7 @@ import yaml
 import matplotlib
 import os
 import pickle
+from modules.util import Range
 matplotlib.use('Agg')
 
 
@@ -151,11 +152,11 @@ def open_video(source_video, gpu=False, advanced_crop=False):
     return driving_video, fps
 
 
-def open_image(source_image, gpu=False, advanced_crop=False):
+def open_image(source_image, gpu=False, advanced_crop=False, increase=0.2):
     source_image = imageio.imread(source_image)
 
     if advanced_crop:
-        source_image = crop_image(source_image, gpu=opt.gpu)
+        source_image = crop_image(source_image, gpu=opt.gpu, increase=increase)
     else:
         source_image = resize(source_image, (256, 256))[..., :3]
 
@@ -210,6 +211,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--crop", dest="crop", action="store_true",
                         help="crop face in image and video.")
+
+    parser.add_argument("--image_padding", dest="image_padding",type=float, choices=[Range(0.0, 1.0)], default=0.2,
+                        help="how much smaller face should be in the result video (range 0.0-1.0) (only if using ---crop)")
 
     parser.add_argument("--audio", dest="audio", action="store_true",
                         help="save original audio in result.")
@@ -281,7 +285,7 @@ if __name__ == "__main__":
               opt.source_image[i] + " as: " + opt.result_video[i])
 
         source_image = open_image(
-            "images/" + opt.source_image[i], gpu=opt.gpu, advanced_crop=opt.crop)
+            "images/" + opt.source_image[i], gpu=opt.gpu, advanced_crop=opt.crop, increase=opt.image_padding)
 
         print("Generating video.")
         predictions = process_frames(source_image, driving_video, generator, kp_detector,

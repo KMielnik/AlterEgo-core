@@ -5,6 +5,12 @@ import torch
 
 from sync_batchnorm import SynchronizedBatchNorm2d as BatchNorm2d
 
+class Range(object):
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+    def __eq__(self, other):
+        return self.start <= other <= self.end
 
 def kp2gaussian(kp, spatial_size, kp_variance):
     """

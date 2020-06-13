@@ -154,7 +154,7 @@ def crop_video(video, gpu=False, increase=0.1, min_frames = 5, image_shape=(256,
 
     return output
 
-def crop_image(image, gpu=False, increase=0.1, min_frames = -1, image_shape=(256,256)):
+def crop_image(image, gpu=False, increase=0.2, min_frames = -1, image_shape=(256,256)):
     return crop_video([image], gpu=gpu, increase=increase, min_frames = min_frames, image_shape=image_shape)[0]
 
 if __name__ == "__main__":
