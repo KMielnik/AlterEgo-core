@@ -1,25 +1,26 @@
-import sys
-import os
-from tool.crop_video import crop_image
-from tool.crop_video import crop_video
-from scipy.spatial import ConvexHull
-from tool.animate import normalize_kp
-from modules.keypoint_detector import KPDetector
-from modules.generator import OcclusionAwareGenerator
-import moviepy.editor as mpy
-from sync_batchnorm import DataParallelWithCallback
-import torch
-from skimage import img_as_ubyte
-from skimage import img_as_float
-from skimage.transform import resize
-import numpy as np
-import imageio
-import yaml
-import matplotlib
+import asyncio
+import concurrent.futures
 import os
 import pickle
-matplotlib.use('Agg')
+import sys
+from typing import List
+
+import imageio
+import moviepy.editor as mpy
+import numpy as np
+import torch
+import yaml
+from scipy.spatial import ConvexHull
+from skimage import img_as_float, img_as_ubyte
+from skimage.transform import resize
 from tqdm import tqdm
+
+from modules.generator import OcclusionAwareGenerator
+from modules.keypoint_detector import KPDetector
+from sync_batchnorm import DataParallelWithCallback
+from task import Task
+from tool.animate import normalize_kp
+from tool.crop_video import crop_image, crop_video
 
 
 def load_checkpoints(config_path, checkpoint_path, cpu=False):
@@ -56,7 +57,7 @@ def load_checkpoints(config_path, checkpoint_path, cpu=False):
     return generator, kp_detector
 
 
-def make_animation(source_image, driving_video, generator, kp_detector, relative=True, adapt_movement_scale=True, cpu=False):
+def make_animation(source_image, driving_video, generator, kp_detector, relative=True, adapt_movement_scale=True, cpu=False, progress_bar=None):
     with torch.no_grad():
         predictions = []
         source = torch.tensor(source_image[np.newaxis].astype(
@@ -68,7 +69,8 @@ def make_animation(source_image, driving_video, generator, kp_detector, relative
         kp_source = kp_detector(source)
         kp_driving_initial = kp_detector(driving[:, :, 0])
 
-        for frame_idx in tqdm(range(driving.shape[2])):
+        for frame_idx in range(driving.shape[2]):
+            progress_bar.update(1)
             driving_frame = driving[:, :, frame_idx]
             if not cpu:
                 driving_frame = driving_frame.cuda()
@@ -99,7 +101,7 @@ def find_best_frame(source, driving, cpu=False, preprocessed_kp_driving=None):
     kp_source = normalize_kp(kp_source)
     norm = float('inf')
     frame_num = 0
-    for i, image in tqdm(enumerate(driving)):
+    for i, image in enumerate(driving):
         if preprocessed_kp_driving != None:
             kp_driving = preprocessed_kp_driving[i]
         else:
@@ -113,21 +115,25 @@ def find_best_frame(source, driving, cpu=False, preprocessed_kp_driving=None):
     return frame_num
 
 
-def process_frames(source_image, driving_frames, generator, kp_detector, from_best_frame=False, adapt_movement_scale=True, gpu=False, preprocessed_kp_driving=None):
+def process_frames(source_image, driving_frames, generator, kp_detector, from_best_frame=False, adapt_movement_scale=True, gpu=False, preprocessed_kp_driving=None, h_progress=True):
+    frames_to_process = len(driving_frames) + \
+        1 if from_best_frame else len(driving_frames)
+    progress_bar = tqdm(total=frames_to_process)
+
     if from_best_frame:
         i = find_best_frame(source_image, driving_frames, cpu=not gpu,
                             preprocessed_kp_driving=preprocessed_kp_driving)
         driving_forward = driving_frames[i:]
         driving_backward = driving_frames[:(i+1)][::-1]
         predictions_forward = make_animation(source_image, driving_forward, generator,
-                                             kp_detector, relative=True, adapt_movement_scale=adapt_movement_scale, cpu=not gpu)
+                                             kp_detector, relative=True, adapt_movement_scale=adapt_movement_scale, cpu=not gpu, progress_bar=progress_bar)
         predictions_backward = make_animation(source_image, driving_backward, generator,
-                                              kp_detector, relative=True, adapt_movement_scale=adapt_movement_scale, cpu=not gpu)
+                                              kp_detector, relative=True, adapt_movement_scale=adapt_movement_scale, cpu=not gpu, progress_bar=progress_bar)
         predictions = predictions_backward[::-1] + predictions_forward[1:]
     else:
         predictions = make_animation(source_image, driving_frames, generator, kp_detector,
-                                     relative=True, adapt_movement_scale=adapt_movement_scale, cpu=not gpu)
-
+                                     relative=True, adapt_movement_scale=adapt_movement_scale, cpu=not gpu, progress_bar=progress_bar)
+    progress_bar.close()
     return predictions
 
 
@@ -156,7 +162,7 @@ def open_image(source_image, gpu=False, advanced_crop=False, increase=0.2):
     return source_image
 
 
-def preprocess_kp_driving(driving, gpu=False):
+def preprocess_kp_driving(driving: List, gpu=False, h_progress=True):
     import face_alignment
 
     def normalize_kp(kp):
@@ -170,7 +176,9 @@ def preprocess_kp_driving(driving, gpu=False):
                                       device='cuda' if gpu else 'cpu')
 
     preprocessed_kp_driving = []
-    for i, image in tqdm(enumerate(driving)):
+    driving_enumerator = enumerate(
+        tqdm(driving)) if h_progress else enumerate(driving)
+    for i, image in driving_enumerator:
         kp_driving = fa.get_landmarks(255 * image)[0]
         kp_driving = normalize_kp(kp_driving)
 
@@ -178,79 +186,107 @@ def preprocess_kp_driving(driving, gpu=False):
 
     return preprocessed_kp_driving
 
-def main(opt):
+
+async def process_task(task: Task):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        loop = asyncio.get_event_loop()
+
+        video_name = os.path.splitext(task.driving_video)[0]
+
+        should_preprocess_video = task.clean_build or not os.path.exists("temp/" + video_name) or not os.path.exists(
+            "temp/" + video_name + "/driving_processed.mp4") or (task.find_best_frame and not os.path.exists("temp/" + video_name + "/kp_driving.npy"))
+
+        preprocessed_kp_driving = None
+
+        if should_preprocess_video:
+            import shutil
+            if os.path.exists("temp/" + video_name):
+                shutil.rmtree("temp/" + video_name)
+
+            os.makedirs("temp/" + video_name)
+            files_folder = "temp/" + video_name + "/"
+
+            yield "Opening video."
+            driving_video, fps = await loop.run_in_executor(
+                pool, open_video,
+                "videos/" + task.driving_video,
+                task.gpu,
+                task.crop)
+
+            with imageio.get_writer(files_folder + "driving_processed.mp4", fps=fps) as writer:
+                [writer.append_data(img_as_ubyte(frame))
+                 for frame in driving_video]
+
+            if task.find_best_frame:
+                yield "Preprocessing frames for --find_best_frame."
+                preprocessed_kp_driving = await loop.run_in_executor(
+                    pool, preprocess_kp_driving,
+                    driving_video, task.gpu)
+
+                with open(files_folder + "kp_driving.npy", "wb") as fp:
+                    pickle.dump(preprocessed_kp_driving, fp)
+        else:
+            files_folder = "temp/" + video_name + "/"
+
+            yield "Opening video from temp."
+            with imageio.get_reader(files_folder + "driving_processed.mp4") as reader:
+                driving_video = [img_as_float(frame) for frame in reader]
+
+            if task.find_best_frame:
+                yield "Loading preprocessed frames for --find_best_frame from temp."
+                with open(files_folder + "kp_driving.npy", "rb") as fp:
+                    preprocessed_kp_driving = pickle.load(fp)
+
+        yield "Opening model."
+        generator, kp_detector = await loop.run_in_executor(
+            pool, load_checkpoints,
+            task.config,
+            task.checkpoint,
+            not task.gpu)
+
+        for i in range(len(task.source_images)):
+            yield ("Generating video for image: " +
+                   task.source_images[i] + " as: " + task.result_videos[i])
+
+            source_image = await loop.run_in_executor(
+                pool, open_image,
+                "images/" + task.source_images[i],
+                task.gpu,
+                task.crop,
+                task.image_padding)
+
+            yield "Generating video."
+            predictions = await loop.run_in_executor(
+                pool, process_frames,
+                source_image,
+                driving_video,
+                generator,
+                kp_detector,
+                task.find_best_frame,
+                False,
+                task.gpu,
+                preprocessed_kp_driving)
+
+            yield "Saving video."
+            with mpy.VideoFileClip("videos/" + task.driving_video) as clip:
+                frames = iter(predictions)
+                with mpy.VideoClip(lambda t: img_as_ubyte(
+                        next(frames)), duration=len(predictions)/clip.fps) as output:
+
+                    if task.audio:
+                        yield "Copying audio."
+                        output.audio = clip.audio
+
+                    output.write_videofile(
+                        "output/" + task.result_videos[i], fps=clip.fps, verbose=False, logger=None)
+
+
+async def main(task: Task):
     if not os.path.exists("temp"):
         os.makedirs("temp")
 
     if not os.path.exists("output"):
         os.makedirs("output")
 
-    video_name = os.path.splitext(opt.driving_video)[0]
-
-    should_preprocess_video = opt.clean or not os.path.exists("temp/" + video_name) or not os.path.exists(
-        "temp/" + video_name + "/driving_processed.mp4") or (opt.find_best_frame and not os.path.exists("temp/" + video_name + "/kp_driving.npy"))
-
-    preprocessed_kp_driving = None
-
-    if should_preprocess_video:
-        import shutil
-        if os.path.exists("temp/" + video_name):
-            shutil.rmtree("temp/" + video_name)
-
-        os.makedirs("temp/" + video_name)
-        files_folder = "temp/" + video_name + "/"
-
-        print("Opening video.")
-        driving_video, fps = open_video(
-            "videos/" + opt.driving_video, gpu=opt.gpu, advanced_crop=opt.crop)
-
-        with imageio.get_writer(files_folder + "driving_processed.mp4", fps=fps) as writer:
-            [writer.append_data(img_as_ubyte(frame))
-             for frame in driving_video]
-
-        if opt.find_best_frame:
-            print("Preprocessing frames for --find_best_frame.")
-            preprocessed_kp_driving = preprocess_kp_driving(
-                driving_video, gpu=opt.gpu)
-
-            with open(files_folder + "kp_driving.npy", "wb") as fp:
-                pickle.dump(preprocessed_kp_driving, fp)
-    else:
-        files_folder = "temp/" + video_name + "/"
-
-        print("Opening video from temp.")
-        with imageio.get_reader(files_folder + "driving_processed.mp4") as reader:
-            driving_video = [img_as_float(frame) for frame in reader]
-
-        if opt.find_best_frame:
-            print("Loading preprocessed frames for --find_best_frame from temp.")
-            with open(files_folder + "kp_driving.npy", "rb") as fp:
-                preprocessed_kp_driving = pickle.load(fp)
-
-    print("Opening model.")
-    generator, kp_detector = load_checkpoints(
-        config_path=opt.config, checkpoint_path=opt.checkpoint, cpu=not opt.gpu)
-
-    for i in range(len(opt.source_image)):
-        print("Generating video for image: " +
-              opt.source_image[i] + " as: " + opt.result_video[i])
-
-        source_image = open_image(
-            "images/" + opt.source_image[i], gpu=opt.gpu, advanced_crop=opt.crop, increase=opt.image_padding)
-
-        print("Generating video.")
-        predictions = process_frames(source_image, driving_video, generator, kp_detector,
-                                     from_best_frame=opt.find_best_frame, adapt_movement_scale=False, gpu=opt.gpu, preprocessed_kp_driving=preprocessed_kp_driving)
-
-        print("Saving video.")
-        with mpy.VideoFileClip("videos/" + opt.driving_video) as clip:
-            frames = iter(predictions)
-            with mpy.VideoClip(lambda t: img_as_ubyte(
-                    next(frames)), duration=len(predictions)/clip.fps) as output:
-
-                if opt.audio:
-                    print("Copying audio.")
-                    output.audio = clip.audio
-
-                output.write_videofile(
-                    "output/" + opt.result_video[i], fps=clip.fps)
+    async for message in process_task(task):
+        print(message)

@@ -62,7 +62,7 @@ def animate(config, generator, kp_detector, checkpoint, log_dir, dataset):
     generator.eval()
     kp_detector.eval()
 
-    for it, x in tqdm(enumerate(dataloader)):
+    for it, x in enumerate(dataloader):
         with torch.no_grad():
             predictions = []
             visualizations = []

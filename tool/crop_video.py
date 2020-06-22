@@ -90,7 +90,7 @@ def process_video_for_crop(video, gpu=False, increase=0.1, min_frames = 5, image
     previous_frame = None
     commands = []
     try:
-        for i, frame in tqdm(enumerate(video)):
+        for i, frame in enumerate(video):
             frame_shape = frame.shape
             bboxes =  extract_bbox(frame, fa)
             ## For each trajectory check the criterion
@@ -144,7 +144,7 @@ def crop_video(video, gpu=False, increase=0.1, min_frames = 5, image_shape=(256,
     output = []
 
     for command in commands:
-        for i in tqdm(range(command["start"], command["end"]+1)):
+        for i in range(command["start"], command["end"]+1):
             bbox = command["bbox"]
             frame = video[i][bbox[2]:bbox[3],bbox[0]:bbox[1],:]
 
