@@ -3,10 +3,12 @@ import concurrent.futures
 import os
 import pickle
 import sys
+from time import time
 from typing import List
 
 import imageio
 import moviepy.editor as mpy
+from output_event import OutputEvent
 import numpy as np
 import torch
 import yaml
@@ -187,7 +189,10 @@ def preprocess_kp_driving(driving: List, gpu=False, h_progress=True):
     return preprocessed_kp_driving
 
 
-async def process_task(task: Task):
+async def process_task(task: Task, h_progress=True):
+    start = time()
+    yield OutputEvent(OutputEvent.Types.PROCESSING_STARTED, time()-start)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         loop = asyncio.get_event_loop()
 
@@ -197,65 +202,80 @@ async def process_task(task: Task):
             "temp/" + video_name + "/driving_processed.mp4") or (task.find_best_frame and not os.path.exists("temp/" + video_name + "/kp_driving.npy"))
 
         preprocessed_kp_driving = None
+        try:
+            if should_preprocess_video:
+                import shutil
+                if os.path.exists("temp/" + video_name):
+                    shutil.rmtree("temp/" + video_name)
 
-        if should_preprocess_video:
-            import shutil
-            if os.path.exists("temp/" + video_name):
-                shutil.rmtree("temp/" + video_name)
+                os.makedirs("temp/" + video_name)
+                files_folder = "temp/" + video_name + "/"
 
-            os.makedirs("temp/" + video_name)
-            files_folder = "temp/" + video_name + "/"
+                yield OutputEvent(OutputEvent.Types.OPENING_VIDEO, time()-start)
 
-            yield "Opening video."
-            driving_video, fps = await loop.run_in_executor(
-                pool, open_video,
-                "videos/" + task.driving_video,
-                task.gpu,
-                task.crop)
+                driving_video, fps = await loop.run_in_executor(
+                    pool, open_video,
+                    "videos/" + task.driving_video,
+                    task.gpu,
+                    task.crop)
 
-            with imageio.get_writer(files_folder + "driving_processed.mp4", fps=fps) as writer:
-                [writer.append_data(img_as_ubyte(frame))
-                 for frame in driving_video]
+                with imageio.get_writer(files_folder + "driving_processed.mp4", fps=fps) as writer:
+                    [writer.append_data(img_as_ubyte(frame))
+                     for frame in driving_video]
 
-            if task.find_best_frame:
-                yield "Preprocessing frames for --find_best_frame."
-                preprocessed_kp_driving = await loop.run_in_executor(
-                    pool, preprocess_kp_driving,
-                    driving_video, task.gpu)
+                if task.find_best_frame:
+                    yield OutputEvent(OutputEvent.Types.PREPROCESSING_FIND_BEST_FRAME, time()-start)
 
-                with open(files_folder + "kp_driving.npy", "wb") as fp:
-                    pickle.dump(preprocessed_kp_driving, fp)
-        else:
-            files_folder = "temp/" + video_name + "/"
+                    preprocessed_kp_driving = await loop.run_in_executor(
+                        pool, preprocess_kp_driving,
+                        driving_video,
+                        task.gpu,
+                        h_progress)
 
-            yield "Opening video from temp."
-            with imageio.get_reader(files_folder + "driving_processed.mp4") as reader:
-                driving_video = [img_as_float(frame) for frame in reader]
+                    with open(files_folder + "kp_driving.npy", "wb") as fp:
+                        pickle.dump(preprocessed_kp_driving, fp)
+            else:
+                files_folder = "temp/" + video_name + "/"
 
-            if task.find_best_frame:
-                yield "Loading preprocessed frames for --find_best_frame from temp."
-                with open(files_folder + "kp_driving.npy", "rb") as fp:
-                    preprocessed_kp_driving = pickle.load(fp)
+                yield OutputEvent(OutputEvent.Types.OPENING_VIDEO_TEMP, time()-start)
 
-        yield "Opening model."
-        generator, kp_detector = await loop.run_in_executor(
-            pool, load_checkpoints,
-            task.config,
-            task.checkpoint,
-            not task.gpu)
+                with imageio.get_reader(files_folder + "driving_processed.mp4") as reader:
+                    driving_video = [img_as_float(frame) for frame in reader]
+
+                if task.find_best_frame:
+                    yield OutputEvent(OutputEvent.Types.PREPROCESSING_FIND_BEST_FRAME_TEMP, time()-start)
+
+                    with open(files_folder + "kp_driving.npy", "rb") as fp:
+                        preprocessed_kp_driving = pickle.load(fp)
+        except:
+            yield OutputEvent(OutputEvent.Types.ERROR_OPENING_VIDEO, time()-start)
+            return
+
+        yield OutputEvent(OutputEvent.Types.OPENING_MODEL, time()-start)
+        try:
+            generator, kp_detector = await loop.run_in_executor(
+                pool, load_checkpoints,
+                task.config,
+                task.checkpoint,
+                not task.gpu)
+        except:
+            yield OutputEvent(OutputEvent.Types.ERROR_OPENING_MODEL, time()-start)
+            return
 
         for i in range(len(task.source_images)):
-            yield ("Generating video for image: " +
-                   task.source_images[i] + " as: " + task.result_videos[i])
+            yield OutputEvent(OutputEvent.Types.PROCESSING_VIDEO_STARTED, time()-start)
 
-            source_image = await loop.run_in_executor(
+            try:
+                source_image = await loop.run_in_executor(
                 pool, open_image,
                 "images/" + task.source_images[i],
                 task.gpu,
                 task.crop,
                 task.image_padding)
+            except:
+                yield OutputEvent(OutputEvent.Types.ERROR_OPENING_IMAGE, time()-start)
+                return
 
-            yield "Generating video."
             predictions = await loop.run_in_executor(
                 pool, process_frames,
                 source_image,
@@ -265,28 +285,18 @@ async def process_task(task: Task):
                 task.find_best_frame,
                 False,
                 task.gpu,
-                preprocessed_kp_driving)
+                preprocessed_kp_driving,
+                h_progress)
 
-            yield "Saving video."
+            yield OutputEvent(OutputEvent.Types.SAVING_OUTPUT_VIDEO, time()-start)
             with mpy.VideoFileClip("videos/" + task.driving_video) as clip:
                 frames = iter(predictions)
                 with mpy.VideoClip(lambda t: img_as_ubyte(
                         next(frames)), duration=len(predictions)/clip.fps) as output:
 
                     if task.audio:
-                        yield "Copying audio."
                         output.audio = clip.audio
 
                     output.write_videofile(
                         "output/" + task.result_videos[i], fps=clip.fps, verbose=False, logger=None)
-
-
-async def main(task: Task):
-    if not os.path.exists("temp"):
-        os.makedirs("temp")
-
-    if not os.path.exists("output"):
-        os.makedirs("output")
-
-    async for message in process_task(task):
-        print(message)
+            yield OutputEvent(OutputEvent.Types.VIDEO_SAVED, time()-start)

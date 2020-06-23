@@ -1,5 +1,6 @@
 from typing import List
 
+
 class Task:
 
     source_images: List[str]
@@ -21,3 +22,9 @@ class Task:
     adapt_scale: bool
 
     clean_build: bool
+    
+    def fromDict(dict):
+        newTask = Task()
+        newTask.__dict__ = dict
+
+        return newTask

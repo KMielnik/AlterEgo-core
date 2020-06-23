@@ -4,21 +4,30 @@ import concurrent.futures
 import sys
 from argparse import ArgumentParser
 import asyncio
-
-import imageio
-import numpy as np
-from scipy.spatial import ConvexHull
-from tqdm import tqdm
-
 from modules.util import Range
 
-from tool.processing import main
+from tool.processing import process_task
 from task import Task
+import json
 
 
 if sys.version_info[0] < 3:
     raise Exception(
         "You must use Python 3 or higher. Recommended version is Python 3.7")
+
+        
+async def main(task: Task):
+    if not os.path.exists("temp"):
+        os.makedirs("temp")
+
+    if not os.path.exists("output"):
+        os.makedirs("output")
+
+    async for event in process_task(task):
+        if event.EventType.isError:
+            print("ERROR: " + event.EventType.text + " Task time: " + "{:.2f}s".format(event.Time) + " CANCELING TASK!")
+        else:
+            print(event.EventType.text + " Time: " + "{:.2f}s".format(event.Time))
 
 
 if __name__ == "__main__":
@@ -73,7 +82,6 @@ if __name__ == "__main__":
     task.image_padding = opt.image_padding
     task.result_videos = opt.result_videos
     task.source_images = opt.source_images
-
 
     loop = asyncio.get_event_loop()
     try:
