@@ -46,7 +46,7 @@ docker run -it --rm --gpus all \
     -v $HOME/AlterEgo-core-data/videos:/AlterEgo-core/videos \
     -v $HOME/AlterEgo-core-data/output:/AlterEgo-core/output \
     -v $HOME/AlterEgo-core-data/temp:/AlterEgo-core/temp \
-    kamilmielnik/alterego-core:1.1.0 \
+    kamilmielnik/alterego-core:2.0.0 \
     python3 run.py \
         --driving_video source.mp4 \
         --source_image a.jpg b.jpg c.jpg \
