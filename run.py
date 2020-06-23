@@ -16,18 +16,16 @@ if sys.version_info[0] < 3:
         "You must use Python 3 or higher. Recommended version is Python 3.7")
 
         
-async def main(task: Task):
-    if not os.path.exists("temp"):
-        os.makedirs("temp")
-
-    if not os.path.exists("output"):
-        os.makedirs("output")
-
+async def main_human(task: Task):
     async for event in process_task(task):
         if event.EventType.isError:
             print("ERROR: " + event.EventType.text + " Task time: " + "{:.2f}s".format(event.Time) + " CANCELING TASK!")
         else:
             print(event.EventType.text + " Time: " + "{:.2f}s".format(event.Time))
+
+async def main_api(task: Task):
+    async for event in process_task(task, h_progress=False):
+        print(json.dumps(event.__dict__))
 
 
 if __name__ == "__main__":
@@ -65,6 +63,9 @@ if __name__ == "__main__":
     parser.add_argument("--clean_build", dest="clean_build", action="store_true",
                         help="do not use old temp data for video.")
 
+    parser.add_argument("--api", dest="api", action="store_true",
+                        help="return json outputs instead of human readable ones.")
+
     parser.set_defaults(relative=False)
     opt = parser.parse_args()
 
@@ -85,7 +86,16 @@ if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
     try:
-        loop.run_until_complete(main(task))
+        if not os.path.exists("temp"):
+            os.makedirs("temp")
+
+        if not os.path.exists("output"):
+            os.makedirs("output")
+
+        if opt.api:
+            loop.run_until_complete(main_api(task))
+        else:
+            loop.run_until_complete(main_human(task))
     finally:
         loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()

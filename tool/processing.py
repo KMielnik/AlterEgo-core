@@ -72,7 +72,8 @@ def make_animation(source_image, driving_video, generator, kp_detector, relative
         kp_driving_initial = kp_detector(driving[:, :, 0])
 
         for frame_idx in range(driving.shape[2]):
-            progress_bar.update(1)
+            if progress_bar != None:
+                progress_bar.update(1)
             driving_frame = driving[:, :, frame_idx]
             if not cpu:
                 driving_frame = driving_frame.cuda()
@@ -118,9 +119,13 @@ def find_best_frame(source, driving, cpu=False, preprocessed_kp_driving=None):
 
 
 def process_frames(source_image, driving_frames, generator, kp_detector, from_best_frame=False, adapt_movement_scale=True, gpu=False, preprocessed_kp_driving=None, h_progress=True):
-    frames_to_process = len(driving_frames) + \
-        1 if from_best_frame else len(driving_frames)
-    progress_bar = tqdm(total=frames_to_process)
+    if h_progress:
+        frames_to_process = len(driving_frames) + \
+            1 if from_best_frame else len(driving_frames)
+
+        progress_bar = tqdm(total=frames_to_process)
+    else:
+        progress_bar = None
 
     if from_best_frame:
         i = find_best_frame(source_image, driving_frames, cpu=not gpu,
@@ -135,7 +140,8 @@ def process_frames(source_image, driving_frames, generator, kp_detector, from_be
     else:
         predictions = make_animation(source_image, driving_frames, generator, kp_detector,
                                      relative=True, adapt_movement_scale=adapt_movement_scale, cpu=not gpu, progress_bar=progress_bar)
-    progress_bar.close()
+    if h_progress:
+        progress_bar.close()
     return predictions
 
 

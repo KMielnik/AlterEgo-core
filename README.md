@@ -36,6 +36,7 @@ You only need to specify filename with extension, for example ``` video.mp4 ```
 * ``` --find_best_frame ``` finds the best frame to start generating video from
 * ``` --audio ``` retain original audio from input video
 * ``` --clean_build ``` do not use previous cropped video data
+* ``` --api ``` outputs json events, instead of human readable ones. Specification of event is available in [output_event.py](output_event.py) with all possible states.
 
 ### Full example with docker
 
