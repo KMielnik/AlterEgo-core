@@ -72,7 +72,7 @@ def make_animation(source_image, driving_video, generator, kp_detector, relative
         kp_driving_initial = kp_detector(driving[:, :, 0])
 
         for frame_idx in range(driving.shape[2]):
-            if progress_bar != None:
+            if progress_bar is not None:
                 progress_bar.update(1)
             driving_frame = driving[:, :, frame_idx]
             if not cpu:
