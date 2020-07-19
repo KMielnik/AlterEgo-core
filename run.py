@@ -9,6 +9,7 @@ from modules.util import Range
 from tool.processing import process_task
 from task import Task
 import json
+from output_event import OutputEvent
 
 
 if sys.version_info[0] < 3:
@@ -25,7 +26,9 @@ async def main_human(task: Task):
 
 async def main_api(task: Task):
     async for event in process_task(task, h_progress=False):
-        print(json.dumps(event.__dict__))
+        print(json.dumps(event.__dict__), file=sys.stderr if event.EventType.isError else sys.stdout)
+        if event.EventType.isError:
+            sys.exit(-1)
 
 
 if __name__ == "__main__":
@@ -67,8 +70,12 @@ if __name__ == "__main__":
                         help="return json outputs instead of human readable ones.")
 
     parser.set_defaults(relative=False)
-    opt = parser.parse_args()
+    
+    if '--api' in sys.argv:
+        parser.error = lambda errmsg : (print(json.dumps(OutputEvent(OutputEvent.Types.ERROR_ARGUMENT_PARSING, 0).__dict__), file=sys.stderr), sys.exit(-1))
 
+    opt = parser.parse_args()
+    
     task = Task()
 
     task.adapt_scale = opt.adapt_scale

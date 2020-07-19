@@ -11,6 +11,8 @@ class OutputEvent:
             isError=False, name="PROCESSING_STARTED", text='Processing started.')
         OPENING_VIDEO = Type(
             isError=False, name="OPENING_VIDEO", text='Opening video.')
+        VIDEO_OPENED = Type(
+            isError=False, name="VIDEO_OPENED", text='Driving video opened.')
         PREPROCESSING_FIND_BEST_FRAME = Type(
             isError=False, name="PREPROCESSING_FIND_BEST_FRAME", text='Preprocessing frames for --find_best_frame.')
         OPENING_VIDEO_TEMP = Type(
@@ -30,10 +32,14 @@ class OutputEvent:
             isError=True, name="ERROR_OPENING_VIDEO", text='Problem with opening video.')
         ERROR_OPENING_MODEL = Type(
             isError=True, name="ERROR_OPENING_MODEL", text='Problem with opening model.')
+        ERROR_ARGUMENT_PARSING = Type(
+            isError=True, name="ERROR_ARGUMENT_PARSING", text='Problem with parsing arguments.')
 
     EventType: Type
+    Filename: str
     Time: float
 
-    def __init__(self, EventType: Type, Time: float):
+    def __init__(self, EventType: Type, Time: float, Filename: str = None):
         self.EventType = EventType
         self.Time = Time
+        self.Filename = Filename

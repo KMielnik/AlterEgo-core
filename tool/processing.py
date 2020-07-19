@@ -217,7 +217,7 @@ async def process_task(task: Task, h_progress=True):
                 os.makedirs("temp/" + video_name)
                 files_folder = "temp/" + video_name + "/"
 
-                yield OutputEvent(OutputEvent.Types.OPENING_VIDEO, time()-start)
+                yield OutputEvent(OutputEvent.Types.OPENING_VIDEO, time()-start, task.driving_video)
 
                 driving_video, fps = await loop.run_in_executor(
                     pool, open_video,
@@ -254,10 +254,12 @@ async def process_task(task: Task, h_progress=True):
                     with open(files_folder + "kp_driving.npy", "rb") as fp:
                         preprocessed_kp_driving = pickle.load(fp)
         except:
-            yield OutputEvent(OutputEvent.Types.ERROR_OPENING_VIDEO, time()-start)
+            yield OutputEvent(OutputEvent.Types.ERROR_OPENING_VIDEO, time()-start, task.driving_video)
             return
 
-        yield OutputEvent(OutputEvent.Types.OPENING_MODEL, time()-start)
+        yield OutputEvent(OutputEvent.Types.VIDEO_OPENED, time()-start, task.driving_video)
+
+        yield OutputEvent(OutputEvent.Types.OPENING_MODEL, time()-start, task.checkpoint)
         try:
             generator, kp_detector = await loop.run_in_executor(
                 pool, load_checkpoints,
@@ -265,11 +267,11 @@ async def process_task(task: Task, h_progress=True):
                 task.checkpoint,
                 not task.gpu)
         except:
-            yield OutputEvent(OutputEvent.Types.ERROR_OPENING_MODEL, time()-start)
+            yield OutputEvent(OutputEvent.Types.ERROR_OPENING_MODEL, time()-start, task.checkpoint)
             return
 
         for i in range(len(task.source_images)):
-            yield OutputEvent(OutputEvent.Types.PROCESSING_VIDEO_STARTED, time()-start)
+            yield OutputEvent(OutputEvent.Types.PROCESSING_VIDEO_STARTED, time()-start, task.result_videos[i])
 
             try:
                 source_image = await loop.run_in_executor(
@@ -279,7 +281,7 @@ async def process_task(task: Task, h_progress=True):
                 task.crop,
                 task.image_padding)
             except:
-                yield OutputEvent(OutputEvent.Types.ERROR_OPENING_IMAGE, time()-start)
+                yield OutputEvent(OutputEvent.Types.ERROR_OPENING_IMAGE, time()-start, task.source_images[i])
                 return
 
             predictions = await loop.run_in_executor(
@@ -294,7 +296,7 @@ async def process_task(task: Task, h_progress=True):
                 preprocessed_kp_driving,
                 h_progress)
 
-            yield OutputEvent(OutputEvent.Types.SAVING_OUTPUT_VIDEO, time()-start)
+            yield OutputEvent(OutputEvent.Types.SAVING_OUTPUT_VIDEO, time()-start, task.result_videos[i])
             with mpy.VideoFileClip("videos/" + task.driving_video) as clip:
                 frames = iter(predictions)
                 with mpy.VideoClip(lambda t: img_as_ubyte(
@@ -305,4 +307,4 @@ async def process_task(task: Task, h_progress=True):
 
                     output.write_videofile(
                         "output/" + task.result_videos[i], fps=clip.fps, verbose=False, logger=None)
-            yield OutputEvent(OutputEvent.Types.VIDEO_SAVED, time()-start)
+            yield OutputEvent(OutputEvent.Types.VIDEO_SAVED, time()-start, task.result_videos[i])
