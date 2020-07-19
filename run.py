@@ -26,8 +26,8 @@ async def main_human(task: Task):
 
 async def main_api(task: Task):
     async for event in process_task(task, h_progress=False):
-        print(json.dumps(event.__dict__), file=sys.stderr if event.EventType.isError else sys.stdout)
-        if event.EventType.isError:
+        print(json.dumps(event._asdict()), file=sys.stderr if event.EventType.IsError else sys.stdout)
+        if event.EventType.IsError:
             sys.exit(-1)
 
 
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     parser.set_defaults(relative=False)
     
     if '--api' in sys.argv:
-        parser.error = lambda errmsg : (print(json.dumps(OutputEvent(OutputEvent.Types.ERROR_ARGUMENT_PARSING, 0).__dict__), file=sys.stderr), sys.exit(-1))
+        parser.error = lambda errmsg : (print(json.dumps(OutputEvent(OutputEvent.Types.ERROR_ARGUMENT_PARSING, 0)._asdict()), file=sys.stderr), sys.exit(-1))
 
     opt = parser.parse_args()
     

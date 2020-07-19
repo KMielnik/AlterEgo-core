@@ -1,39 +1,40 @@
 import collections
+import copy
 
-Type = collections.namedtuple('Type', 'isError name text ')
+Type = collections.namedtuple('Type', 'IsError Name Text ')
 
 
 class OutputEvent:
     class Types:
         OPENING_MODEL = Type(
-            isError=False, name="OPENING_MODEL", text='Opening model.')
+            IsError=False, Name="OPENING_MODEL", Text='Opening model.')
         PROCESSING_STARTED = Type(
-            isError=False, name="PROCESSING_STARTED", text='Processing started.')
+            IsError=False, Name="PROCESSING_STARTED", Text='Processing started.')
         OPENING_VIDEO = Type(
-            isError=False, name="OPENING_VIDEO", text='Opening video.')
+            IsError=False, Name="OPENING_VIDEO", Text='Opening video.')
         VIDEO_OPENED = Type(
-            isError=False, name="VIDEO_OPENED", text='Driving video opened.')
+            IsError=False, Name="VIDEO_OPENED", Text='Driving video opened.')
         PREPROCESSING_FIND_BEST_FRAME = Type(
-            isError=False, name="PREPROCESSING_FIND_BEST_FRAME", text='Preprocessing frames for --find_best_frame.')
+            IsError=False, Name="PREPROCESSING_FIND_BEST_FRAME", Text='Preprocessing frames for --find_best_frame.')
         OPENING_VIDEO_TEMP = Type(
-            isError=False, name="OPENING_VIDEO_TEMP", text='Opening preprocessed video from temp.')
+            IsError=False, Name="OPENING_VIDEO_TEMP", Text='Opening preprocessed video from temp.')
         PREPROCESSING_FIND_BEST_FRAME_TEMP = Type(
-            isError=False, name="PREPROCESSING_FIND_BEST_FRAME_TEMP", text='Loading preprocessed frames for --find_best_frame from temp.')
+            IsError=False, Name="PREPROCESSING_FIND_BEST_FRAME_TEMP", Text='Loading preprocessed frames for --find_best_frame from temp.')
         PROCESSING_VIDEO_STARTED = Type(
-            isError=False, name="PROCESSING_VIDEO_STARTED", text='Started generating output video.')
+            IsError=False, Name="PROCESSING_VIDEO_STARTED", Text='Started generating output video.')
         SAVING_OUTPUT_VIDEO = Type(
-            isError=False, name="SAVING_OUTPUT_VIDEO", text='Video generated, saving to file.')
-        VIDEO_SAVED = Type(isError=False, name="VIDEO_SAVED",
-                           text='Generated video has ben saved.')
+            IsError=False, Name="SAVING_OUTPUT_VIDEO", Text='Video generated, saving to file.')
+        VIDEO_SAVED = Type(IsError=False, Name="VIDEO_SAVED",
+                           Text='Generated video has ben saved.')
 
         ERROR_OPENING_IMAGE = Type(
-            isError=True, name="ERROR_OPENING_IMAGE", text='Problem with opening image.')
+            IsError=True, Name="ERROR_OPENING_IMAGE", Text='Problem with opening image.')
         ERROR_OPENING_VIDEO = Type(
-            isError=True, name="ERROR_OPENING_VIDEO", text='Problem with opening video.')
+            IsError=True, Name="ERROR_OPENING_VIDEO", Text='Problem with opening video.')
         ERROR_OPENING_MODEL = Type(
-            isError=True, name="ERROR_OPENING_MODEL", text='Problem with opening model.')
+            IsError=True, Name="ERROR_OPENING_MODEL", Text='Problem with opening model.')
         ERROR_ARGUMENT_PARSING = Type(
-            isError=True, name="ERROR_ARGUMENT_PARSING", text='Problem with parsing arguments.')
+            IsError=True, Name="ERROR_ARGUMENT_PARSING", Text='Problem with parsing arguments.')
 
     EventType: Type
     Filename: str
@@ -43,3 +44,9 @@ class OutputEvent:
         self.EventType = EventType
         self.Time = Time
         self.Filename = Filename
+
+    def _asdict(self):
+        eventDict = copy.deepcopy(self.__dict__)
+        eventDict["EventType"] = eventDict["EventType"]._asdict()
+
+        return eventDict
