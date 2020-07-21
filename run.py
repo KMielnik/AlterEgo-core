@@ -19,7 +19,7 @@ if sys.version_info[0] < 3:
         
 async def main_human(task: Task):
     async for event in process_task(task):
-        if event.EventType.isError:
+        if event.EventType.IsError:
             print("ERROR: " + event.EventType.text + " Task time: " + "{:.2f}s".format(event.Time) + " CANCELING TASK!")
         else:
             print(event.EventType.text + " Time: " + "{:.2f}s".format(event.Time))
