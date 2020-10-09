@@ -16,17 +16,21 @@ if sys.version_info[0] < 3:
     raise Exception(
         "You must use Python 3 or higher. Recommended version is Python 3.7")
 
-        
+
 async def main_human(task: Task):
     async for event in process_task(task):
         if event.EventType.IsError:
-            print("ERROR: " + event.EventType.text + " Task time: " + "{:.2f}s".format(event.Time) + " CANCELING TASK!")
+            print("ERROR: " + event.EventType.Text + " Task time: " +
+                  "{:.2f}s".format(event.Time) + " CANCELING TASK!")
         else:
-            print(event.EventType.text + " Time: " + "{:.2f}s".format(event.Time))
+            print(event.EventType.Text + " Time: " +
+                  "{:.2f}s".format(event.Time))
+
 
 async def main_api(task: Task):
     async for event in process_task(task, h_progress=False):
-        print(json.dumps(event._asdict()), file=sys.stderr if event.EventType.IsError else sys.stdout)
+        print(json.dumps(event._asdict()),
+              file=sys.stderr if event.EventType.IsError else sys.stdout)
         if event.EventType.IsError:
             sys.exit(-1)
 
@@ -70,12 +74,13 @@ if __name__ == "__main__":
                         help="return json outputs instead of human readable ones.")
 
     parser.set_defaults(relative=False)
-    
+
     if '--api' in sys.argv:
-        parser.error = lambda errmsg : (print(json.dumps(OutputEvent(OutputEvent.Types.ERROR_ARGUMENT_PARSING, 0)._asdict()), file=sys.stderr), sys.exit(-1))
+        parser.error = lambda errmsg: (print(json.dumps(OutputEvent(
+            OutputEvent.Types.ERROR_ARGUMENT_PARSING, 0)._asdict()), file=sys.stderr), sys.exit(-1))
 
     opt = parser.parse_args()
-    
+
     task = Task()
 
     task.adapt_scale = opt.adapt_scale
